@@ -41,7 +41,7 @@ app = Dispatch('Word.Application')
 app.visible = True
 # doc2 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.docx')
 doc2 = None
-doc1 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.docx')
+doc1 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/back.docx')
 doc1.ActiveWindow.View.ShowHiddenText = False
 
 app2 = Dispatch('Excel.Application')
@@ -53,8 +53,9 @@ elements=source[0]
 # elements = None
 elements_dict = {}
 
-data_list = [('合并资产负债表',(4,6),(110,32))]
-label_list = [('注释',(7,4),(113,30))]
+#工作表名称 (起始行，起始列) (结尾行，结尾列)
+data_list = [('替换要素',(2,3),(179,3))]
+label_list = [('替换要素',(2,1),(179,1))]
 color_dict = {'橙色':49407,'蓝色':15773696,'绿色':5287936,'浅绿':5296274}
 
 def replace_all(oldstr, newstr, regrex = False):
@@ -91,8 +92,8 @@ def elements_pre():
 # def elements_state2to1():
 #     replace_all('\{M_(*)_(*)\}','{$\\1}',regrex=True)
 
-def remove_color(color=65535):
-    app.Selection.Find.Font.Color = color
+def remove_color(colorname):
+    app.Selection.Find.Font.Color = color_dict[colorname]
     app.Selection.Find.Execute(FindText='', MatchCase=False, MatchWholeWord=False, MatchWildcards = False,
                                MatchSoundsLike = False, MatchAllWordForms = False, Forward = True,
                                Wrap = 1, Format = True, ReplaceWith='', Replace=2)
@@ -115,19 +116,7 @@ def set_find(ClearFormatting=True, Text="", ReplacementText="",Forward=True,
     app.Selection.Find.MatchWildcards = MatchWildcards
 
 def hide_change(hidden = False,name = None):
-    app.Selection.Find.ClearFormatting()
-    app.Selection.Find.Text = "\{T%s_*_T%s\}" % (name, name)
-    app.Selection.Find.Replacement.Text = ""
-    app.Selection.Find.Forward = True
-    app.Selection.Find.Wrap = 1
-    app.Selection.Find.Format = False
-    app.Selection.Find.MatchCase = False
-    app.Selection.Find.MatchWholeWord = False
-    app.Selection.Find.MatchByte = True
-    app.Selection.Find.MatchAllWordForms = False
-    app.Selection.Find.MatchSoundsLike = False
-    app.Selection.Find.MatchWildcards = True
-
+    set_find(Text="\{T%s_*_T%s\}" % (name, name))
     app.Selection.WholeStory()
     while app.Selection.Find.Execute():
         app.Selection.Font.Hidden = hidden
@@ -154,7 +143,7 @@ def chosen_copy(now,rest,chosen):
         if len(now) != 0 and chosen in now:
             name = ';'.join(now)
             replace_all("\{T%s_(*)_T%s\}" % (name, name),"{P_\\1_P}{T%s_\\1_T%s}" % (name, name),regrex=True)
-            replace_all("^p^p", "^p")
+            # replace_all("^p^p", "^p")
 
 def copy_chosen_T(chosen,t_num):
     tl = [str(i) for i in range(1,t_num + 1)]
@@ -182,6 +171,8 @@ def replace_elements():
                     pbar.update(1)
 
 def remove_p():
+    doc1.Save()
+    doc1.SaveAs(os.path.dirname(os.path.abspath(__file__)) + '/back.docx')
     replace_all('\{P_(*)_P\}','\\1',regrex=True)
 
 def remove_empty_row():
@@ -207,39 +198,62 @@ def remove_empty_row():
             row_index += 1
     doc1.ActiveWindow.View.ShowHiddenText = False
 
-def condition():
-    app.Selection.Find.ClearFormatting()
-    app.Selection.Find.Text = "\{T(*)_"
-    app.Selection.Find.Replacement.Text = ""
-    app.Selection.Find.Forward = True
-    app.Selection.Find.Wrap = 1
-    app.Selection.Find.Format = False
-    app.Selection.Find.MatchCase = False
-    app.Selection.Find.MatchWholeWord = False
-    app.Selection.Find.MatchByte = True
-    app.Selection.Find.MatchAllWordForms = False
-    app.Selection.Find.MatchSoundsLike = False
-    app.Selection.Find.MatchWildcards = True
-
+def level_1_condition():
+    set_find(Text="\{T(*)_")
     app.Selection.WholeStory()
     while app.Selection.Find.Execute():
+        #TODO CONDITION JUDGE
+
+        #NEED
         label_text = app.Selection.text[2:-1]
+        oldStr = "\{T%s_(*)_T%s\}" % (label_text, label_text)
+        newStr = "{P_\\1_P}{T%s_\\1_T%s}" % (label_text, label_text)
+        app.Selection.Find.Execute(oldStr, False, False, True, False, False, True, 1, False, newStr, 1)
+        #HIDE T
+        start = app.Selection.range.start
+        end = app.Selection.range.end
+        content_length = (end - start - 12 - 2*len(label_text))//2
+        Tstart = content_length + 2 * len(label_text) + 6
+        doc1.Range(end-Tstart,end).Font.Hidden = True
+        #TODO DONT NEED
+
+        app.Selection.Start = app.Selection.End
+        app.Selection.Find.Wrap = 0
+        app.Selection.Find.Text = "\{T(*)_"
         print('ssss')
 
-condition()
-elements_pre()
+def sub_condition():
+    set_find(Text="\{T(*)_")
+    app.Selection.WholeStory()
+    while app.Selection.Find.Execute():
+        #TODO CONDITION JUDGE
 
-hide_change(False,'')
+        #NEED
+        label_text = app.Selection.text[2:-1]
+        oldStr = "\{T%s_(*)_T%s\}" % (label_text, label_text)
+        newStr = "\\1"
+        app.Selection.Find.Execute(oldStr, False, False, True, False, False, True, 1, False, newStr, 1)
+        #TODO DONT NEED
+
+        app.Selection.Find.Text = "\{T(*)_"
+        print('ssss')
+
+
 
 # copy_chosen_T(chosen=2,t_num=4)
 # hide_all_T(t_num=4)
+# level_1_condition()
+# sub_condition()
 # replace_elements()
-# remove_color(65535)
+# remove_color('绿色')
 # remove_empty_row()
+#
+# #提交时
+# remove_p()
+#恢复模板状态
 restore()
 
-#提交时
-remove_p()
+
 
 
 
