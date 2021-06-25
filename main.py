@@ -1,51 +1,23 @@
-from docx import Document
-from docx.oxml.ns import qn
-from docx.shared import Pt
 import re
 import pandas as pd
 import os
+import glob
+import natsort
 from tqdm import tqdm
 from colorama import Fore
 import collections
 
 from win32com.client import Dispatch
 
-
-# def respec(match):
-#     return "{}_hhh".format(match.group(0))
-#
-# def delete_paragraph(paragraph):
-#     p = paragraph._element
-#     p.getparent().remove(p)
-#     # p._p = p._element = None
-#     paragraph._p = paragraph._element = None
-#
-# document = Document(r'source.docx')
-# ps = [ paragraph for paragraph in document.paragraphs]
-#
-# delete_paragraph(ps[62])
-#
-# # ps[20].text = re.sub(r'{\$(.+?)}',respec,ps[20].text)
-# # ps[20].style.font.name = 'Times New Roman'
-# # ps[20].style._element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')
-# # ps[20].style.font.size = Pt(12)
-# # document.paragraphs = document.paragraphs.insert(20,ps[20])
-# # for p in ps:
-# #     print(p)
-# document.save('new.docx')
-
-
-
 #initialization
 app = Dispatch('Word.Application')
 app.visible = True
-# doc2 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.docx')
-doc2 = None
-doc1 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/back.docx')
+doc1 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.docx')
+doc2 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/target.docx')
 doc1.ActiveWindow.View.ShowHiddenText = False
+doc1.Activate()
 
-app2 = Dispatch('Excel.Application')
-xbook = app2.Workbooks.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.xlsm')
+xbook = Dispatch('Excel.Application').Workbooks.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.xlsm')
 
 source=pd.read_excel(os.path.join(os.path.dirname(os.path.abspath(__file__)),'test.xlsm'),sheet_name=[0],header=0)
 field_dict = collections.OrderedDict()
@@ -57,6 +29,9 @@ elements_dict = {}
 data_list = [('替换要素',(2,3),(179,3))]
 label_list = [('替换要素',(2,1),(179,1))]
 color_dict = {'橙色':49407,'蓝色':15773696,'绿色':5287936,'浅绿':5296274}
+
+def fiFindByWildcard(wildcard):
+    return natsort.natsorted(glob.glob(wildcard, recursive=True))
 
 def replace_all(oldstr, newstr, regrex = False):
     app.Selection.Find.Execute(
@@ -156,12 +131,12 @@ def restore():
     app.Selection.Font.Hidden = False
     doc1.ActiveWindow.View.ShowHiddenText = False
 
-def replace_elements():
+def replace_elements(filename):
     for i,l in zip(data_list,label_list):
         row_num = i[2][0]-i[1][0]+1
         col_num = i[2][1]-i[1][1]+1
         with tqdm(total=row_num*col_num) as pbar:
-            pbar.set_description(i[0])
+            pbar.set_description(filename+'_'+i[0])
             for row in range(row_num):
                 for col in range(col_num):
                     data = xbook.sheets[i[0]].Cells(i[1][0]+row,i[1][1]+col).text.strip()
@@ -170,33 +145,51 @@ def replace_elements():
                         replace_all(label,data)
                     pbar.update(1)
 
-def remove_p():
+def remove_mark():
     doc1.Save()
     doc1.SaveAs(os.path.dirname(os.path.abspath(__file__)) + '/back.docx')
     replace_all('\{P_(*)_P\}','\\1',regrex=True)
 
-def remove_empty_row():
-    doc1.ActiveWindow.View.ShowHiddenText = True
-    for table in doc1.tables:
-        if table.Cell(1,1).range.font.hidden == -1:
-            continue
-        row_index = 1
-        for i in range(1, table.rows.count + 1):
-            flag = True
-            for j in range(1, table.columns.count + 1):
-                try:
-                    cell_str = table.Cell(row_index,j).range.text.split('\r')[0]
-                    if cell_str != '':
+def remove_condition_row(enum):
+    # doc1.ActiveWindow.View.ShowHiddenText = True
+    # default enum ''
+    if enum == '':
+        col_begin = 1
+        set_find(Text="\{C_(*)_C\}")
+    elif enum == '-':
+        col_begin = 2
+        set_find(Text="\{D_(*)_D\}")
+    else:
+        return
+
+    app.Selection.WholeStory()
+    while app.Selection.Find.Execute():
+        for table in app.Selection.Range.tables:
+            if table.Cell(1,1).range.font.hidden == -1:
+                continue
+            row_index = 1
+            for i in range(1, table.rows.count + 1):
+                flag = True
+                for j in range(col_begin, table.columns.count + 1):
+                    try:
+                        cell_str = table.Cell(row_index,j).range.text.split('\r')[0]
+                        if cell_str != enum:
+                            flag = False
+                            break
+                    except BaseException:
                         flag = False
                         break
-                except BaseException:
-                    flag = False
-                    break
-            if flag:
-                doc1.Range(table.Cell(row_index,1).range.start,table.Cell(row_index,table.columns.count).range.end).cells.Delete(2)
-                row_index -= 1
-            row_index += 1
-    doc1.ActiveWindow.View.ShowHiddenText = False
+                if flag:
+                    doc1.Range(table.Cell(row_index,1).range.start,table.Cell(row_index,table.columns.count).range.end).cells.Delete(2)
+                    row_index -= 1
+                row_index += 1
+    # doc1.ActiveWindow.View.ShowHiddenText = False
+
+def delete_trigger_para(trigger_text="{Trigger}"):
+    set_find(Text=trigger_text, MatchWildcards=False)
+    app.Selection.WholeStory()
+    while app.Selection.Find.Execute():
+        app.selection.paragraphs[0].Range.Delete()
 
 def level_1_condition():
     set_find(Text="\{T(*)_")
@@ -220,7 +213,6 @@ def level_1_condition():
         app.Selection.Start = app.Selection.End
         app.Selection.Find.Wrap = 0
         app.Selection.Find.Text = "\{T(*)_"
-        print('ssss')
 
 def sub_condition():
     set_find(Text="\{T(*)_")
@@ -236,22 +228,63 @@ def sub_condition():
         #TODO DONT NEED
 
         app.Selection.Find.Text = "\{T(*)_"
-        print('ssss')
 
+def Ftrans(target_doc):
+    set_find(Text="\{F(*)_")
+    doc1.Activate()
+    app.Selection.WholeStory()
+    while app.Selection.Find.Execute():
+        label_text = app.Selection.text[2:-1]
+        app.Selection.Find.Text = "\{F%s_(*)_F%s\}" % (label_text, label_text)
+        app.Selection.End = app.Selection.Start
+        app.Selection.Find.Execute()
+        offset = len(label_text) + 3
+        start = app.Selection.Start
+        end = app.Selection.end
+        doc1.Range(start+offset,end-offset).Copy()
+
+        target_doc.Activate()
+        app.Selection.Find.Text = "{F%s}" % label_text
+        app.Selection.Find.MatchWildcards = False
+        app.Selection.WholeStory()
+        while app.Selection.Find.Execute():
+            app.Selection.Paragraphs[0].Range.PasteAndFormat(16)
+
+        doc1.Activate()
+        app.Selection.Find.Text = "\{F(*)_"
+        app.Selection.Find.MatchWildcards = True
+        app.Selection.Start = app.Selection.End
+        app.Selection.Find.Wrap = 0
+
+def batch_replace(directory):
+    docx_paths = fiFindByWildcard(os.path.join(directory, '*.docx'))
+    for path in docx_paths:
+        temp_doc = app.Documents.Open(path)
+        temp_doc.Activate()
+        replace_elements(path.split('\\')[-1])
+        temp_doc.Save()
+        temp_doc.Close()
+
+    doc1.Activate()
 
 
 # copy_chosen_T(chosen=2,t_num=4)
 # hide_all_T(t_num=4)
 # level_1_condition()
 # sub_condition()
-# replace_elements()
-# remove_color('绿色')
-# remove_empty_row()
-#
+# replace_elements('main')
+# remove_color('橙色')
+remove_condition_row(enum='-')
+remove_condition_row(enum='')
 # #提交时
-# remove_p()
-#恢复模板状态
-restore()
+# remove_mark()
+# #恢复模板状态
+# restore()
+
+delete_trigger_para("{Trigger}")
+
+batch_replace(r'C:\Users\lihongyu\Desktop\testDir')
+Ftrans(doc2)
 
 
 

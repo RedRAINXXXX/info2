@@ -1,0 +1,14 @@
+T: Template
+C: Color Remove
+P: Temp
+D: - Delete
+F: Field
+
+
+特定 表格文字颜色删除 DONE!
+-行删除 R标记？DONE!
+触发条件所在段落删除 DONE!
+标记转移 DONE!
+表格T标记方法 DONE!
+接口封装
+文件批替换 DONE!
