@@ -12,22 +12,29 @@ from win32com.client import Dispatch
 #initialization
 app = Dispatch('Word.Application')
 app.visible = True
-doc1 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.docx')
-doc2 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/target.docx')
-doc1.ActiveWindow.View.ShowHiddenText = False
-doc1.Activate()
+excel = Dispatch('Excel.Application')
+excel.visible = True
 
-xbook = Dispatch('Excel.Application').Workbooks.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.xlsm')
 
-source=pd.read_excel(os.path.join(os.path.dirname(os.path.abspath(__file__)),'test.xlsm'),sheet_name=[0],header=0)
-field_dict = collections.OrderedDict()
-elements=source[0]
-# elements = None
-elements_dict = {}
+
+try:
+    conf = pd.read_excel('conf.xlsx',sheet_name=[0],header=0)[0]
+    doc1 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.docx')
+    doc2 = app.Documents.Open(os.path.dirname(os.path.abspath(__file__)) + '/target.docx')
+    doc1.ActiveWindow.View.ShowHiddenText = False
+    doc1.Activate()
+    xbook = excel.Workbooks.Open(os.path.dirname(os.path.abspath(__file__)) + '/test.xlsm')
+
+    field_dict = collections.OrderedDict()
+    # while True:
+except Exception as errmsg:
+    print(errmsg)
 
 #工作表名称 (起始行，起始列) (结尾行，结尾列)
-data_list = [('替换要素',(2,3),(179,3))]
-label_list = [('替换要素',(2,1),(179,1))]
+# data_list = [('替换要素',(2,3),(179,3))]
+# label_list = [('替换要素',(2,1),(179,1))]
+data_list = []
+label_list = []
 color_dict = {'橙色':49407,'蓝色':15773696,'绿色':5287936,'浅绿':5296274}
 
 def fiFindByWildcard(wildcard):
@@ -39,35 +46,10 @@ def replace_all(oldstr, newstr, regrex = False):
 
 # app.Selection.Find.Execute('\{\$(*)\}', False, False, True, False, False, True, 1, False, '\\1', 2)
 #Replace
-def elements_pre():
-    for i in range(len(elements)):
-        elements_dict[elements['要素项目'][i]] = elements['内容'][i][2:-1]
 
-# def elements_state1to3():
-#     # with tqdm(total=len(elements_dict),bar_format='{l_bar}%s{bar}%s{r_bar}' % (Fore.BLUE, Fore.RESET)) as pbar:
-#     with tqdm(total=len(elements_dict)) as pbar:
-#         pbar.set_description('Replacing:')
-#         for index,element in zip(range(len(elements_dict)),elements_dict):
-#             newStr = elements_dict[element]
-#             if not pd.isnull(newStr) and newStr!='-':
-#                 replace_all(element,elements_dict[element])
-#             pbar.update(1)
-# def elements_state1to2():
-#     # with tqdm(total=len(elements_dict),bar_format='{l_bar}%s{bar}%s{r_bar}' % (Fore.BLUE, Fore.RESET)) as pbar:
-#     with tqdm(total=len(elements_dict)) as pbar:
-#         pbar.set_description('Replacing:')
-#         for index,element in zip(range(len(elements_dict)),elements_dict):
-#             label = re.match(r'{\$(.+?)}',element).group(1)
-#             newStr = '{' + 'M_{}_{}'.format(label,elements_dict[element]) + '}'
-#             if not pd.isnull(newStr) and newStr!='-':
-#                 replace_all(element,newStr)
-#             pbar.update(1)
-# def elements_state2to3():
-#     replace_all('\{M_(*)_(*)\}','\\2',regrex=True)
-# def elements_state2to1():
-#     replace_all('\{M_(*)_(*)\}','{$\\1}',regrex=True)
-
+#1 Remove Color
 def remove_color(colorname):
+    doc1.Activate()
     app.Selection.Find.Font.Color = color_dict[colorname]
     app.Selection.Find.Execute(FindText='', MatchCase=False, MatchWholeWord=False, MatchWildcards = False,
                                MatchSoundsLike = False, MatchAllWordForms = False, Forward = True,
@@ -256,6 +238,32 @@ def Ftrans(target_doc):
         app.Selection.Start = app.Selection.End
         app.Selection.Find.Wrap = 0
 
+def Finner_copy():
+    set_find(Text="\{F(*)_")
+    app.Selection.WholeStory()
+    while app.Selection.Find.Execute():
+        label_text = app.Selection.text[2:-1]
+        app.Selection.Find.Text = "\{F%s_(*)_F%s\}" % (label_text, label_text)
+        app.Selection.End = app.Selection.Start
+        app.Selection.Find.Execute()
+        offset = len(label_text) + 3
+        start = app.Selection.Start
+        end = app.Selection.end
+        doc1.Range(start+offset,end-offset).Copy()
+
+        app.Selection.Find.Text = "{F%s}" % label_text
+        app.Selection.Find.MatchWildcards = False
+        app.Selection.Start = 0
+        app.Selection.End = 0
+        while app.Selection.Find.Execute():
+            app.Selection.Paragraphs[0].Range.PasteAndFormat(16)
+
+        app.Selection.Find.Text = "\{F(*)_"
+        app.Selection.Find.MatchWildcards = True
+        app.Selection.Start = end
+        app.Selection.End = end
+        app.Selection.Find.Wrap = 0
+
 def batch_replace(directory):
     docx_paths = fiFindByWildcard(os.path.join(directory, '*.docx'))
     for path in docx_paths:
@@ -268,179 +276,45 @@ def batch_replace(directory):
     doc1.Activate()
 
 
+
+
+#----------------------------------------Testing--------------------------------------
+
+# a = doc1.paragraphs[24].range.highlightcolorindex
+# b = doc1.paragraphs[22].range.font.colorindex
+#insert col
+# for i in range(1, doc1.tables[0].rows.count + 1):
+#     doc1.tables[0].Cell(i, doc1.tables[0].columns.count).range.text = 'content_{}'.format(i)
+# doc1.tables[0].Cell(1,1).range.text = '具体项目'
+
+try:
+    doc1_name = input("请输入配置路径（Excel）：")
+    conf = pd.read_excel(doc1_name,sheet_name=[0],header=0)[0]
+
+    field_dict = collections.OrderedDict()
+    # while True:
+except Exception as errmsg:
+    print(errmsg)
+
 # copy_chosen_T(chosen=2,t_num=4)
 # hide_all_T(t_num=4)
 # level_1_condition()
 # sub_condition()
 # replace_elements('main')
 # remove_color('橙色')
-remove_condition_row(enum='-')
-remove_condition_row(enum='')
+# remove_condition_row(enum='-')
+# remove_condition_row(enum='')
 # #提交时
 # remove_mark()
 # #恢复模板状态
 # restore()
 
-delete_trigger_para("{Trigger}")
+# delete_trigger_para("{Trigger}")
+#
+# batch_replace(r'C:\Users\lihongyu\Desktop\testDir')
+# Ftrans(doc2)
 
-batch_replace(r'C:\Users\lihongyu\Desktop\testDir')
-Ftrans(doc2)
-
-
-
-
-
-
-
-
-
-
-
-
-# re.match(r'(.+?)\n(.+)',a).group(2)
-# xbook.sheets[5].Cells(20,6).Comment.Text()
-# xbook.sheets[5].Range('F20').Comment.Text()
-# doc1.ActiveWindow.View.ShowHiddenText = True
-# replace_all('\{T33_*_T33\}^13', '', regrex=True)
-#app.Selection.Range.ListFormat.ApplyListTemplate(ListTemplate=app.Selection.Range.ListFormat.ListTemplate, ContinuePreviousList=False)
-
-def field_scan():
-    for field in doc1.Fields:
-        field.Select()
-        if field.code.text.strip().isdigit():
-            field_dict[field.code.text.strip()] = doc1.Range(0, field.application.selection.paragraphs[0].range.end).paragraphs.count
-        if 'begin' in field.code.text.strip() or 'end' in field.code.text.strip():
-            field_dict[field.code.text.strip()] = doc1.Range(0, field.application.selection.paragraphs[0].range.end).paragraphs.count
-        if 'tbegin' in field.code.text.strip() or 'tend' in field.code.text.strip():
-            field_dict[field.code.text.strip()] = doc1.Range(0, field.application.selection.paragraphs[0].range.end).paragraphs.count
-        print(field.code.text.strip())
-
-def update_field_dict(begin_name, end_name, enum=0 , pnum=0):
-
-    flag = False
-    diff = 0
-    if enum == 0:
-        diff = field_dict[end_name] - field_dict[begin_name] + 1
-    elif enum == 1:
-        diff = pnum
-    for key in list(field_dict):
-        if not flag:
-            if key == begin_name or key == end_name:
-                if enum == 0:
-                    field_dict.pop(key)
-                elif enum == 1:
-                    flag = True
-                    continue
-            if key == end_name:
-                flag = True
-                continue
-        if flag:
-            field_dict[key] -= diff
-
-def field_trans():
-    for field in doc2.Fields:
-        locs = field.code.text.strip().split('#')
-        if len(locs) == 2:
-            field.Select()
-            i = doc2.Range(0,field.application.selection.paragraphs[0].range.end).paragraphs.count
-            # field.Delete()
-            doc1.Range(doc1.paragraphs[field_dict[locs[0]]].range.start, doc1.paragraphs[field_dict[locs[1]] - 2].range.end).Copy()
-            doc2.paragraphs[i-1].range.PasteAndFormat(16)
-
-def pop_field(block_name):
-    begin_name = '{}begin'.format(block_name)
-    end_name = '{}end'.format(block_name)
-    rangeStart = doc1.paragraphs[field_dict[begin_name]-1].range.start
-    rangeEnd = doc1.paragraphs[field_dict[end_name] - 1].range.end
-    doc1.Range(rangeStart, rangeEnd).Delete()
-
-    update_field_dict(begin_name, end_name)
-
-def table_add_col(table_name, num=1):
-    table = field2table(table_name)
-    begin_name = '{}tbegin'.format(table_name)
-    end_name = '{}tend'.format(table_name)
-    for i in range(num):
-        table.columns.Add()
-        table.columns.last.Cells.verticalalignment = 1
-        update_field_dict(begin_name, end_name, 1, -table.rows.count)
-    table.AutoFitBehavior(2)
-
-def table_del_col(table_name, num=1):
-    table = field2table(table_name)
-    begin_name = '{}tbegin'.format(table_name)
-    end_name = '{}tend'.format(table_name)
-    for i in range(num):
-        table.columns.last.Delete()
-        update_field_dict(begin_name, end_name, 1, table.rows.count)
-    table.AutoFitBehavior(2)
-
-def remove_zero_row(block_name, row_off = 4,col_off = 2):
-    begin_name = '{}tbegin'.format(block_name)
-    end_name = '{}tend'.format(block_name)
-
-    table = field2table(block_name)
-
-    row_index = row_off
-    for i in range(row_off, table.rows.count + 1):
-        flag = True
-        for j in range(col_off, table.columns.count + 1):
-            cell_str = table.Cell(row_index,j).range.text.split('\r')[0]
-            if not cell_str.isdigit() or float(cell_str) != 0:
-                flag = False
-                break
-        if flag:
-            doc1.Range(table.Cell(row_index,1).range.start,table.Cell(row_index,table.columns.count).range.end).cells.Delete(2)
-            update_field_dict(begin_name, end_name, 1, table.columns.count + 1)
-            row_index -= 1
-        row_index += 1
-
-def field2table(table_name):
-    begin_name = '{}tbegin'.format(table_name)
-    end_name = '{}tend'.format(table_name)
-    rangeStart = doc1.paragraphs[field_dict[begin_name] - 1].range.end
-    rangeEnd = doc1.paragraphs[field_dict[end_name] - 1].range.start
-    table = doc1.Range(rangeStart, rangeEnd).tables[0]
-    return table
-
-#----------------------------------------Testing--------------------------------------
-field_scan()
-pop_field('有担保')
-pop_field('无担保')
-pop_field('标号测试')
-pop_field('债券发行')
-
-# Table Options
-
-doc1.paragraphs[25].range.Copy()
-doc1.paragraphs[27].range.PasteAndFormat(16)
-
-# a = doc1.paragraphs[24].range.highlightcolorindex
-# b = doc1.paragraphs[22].range.font.colorindex
-
-table_add_col('资产负债', 2)
-table_del_col('资产负债', 1)
-
-pop_field('货币资金1')
-pop_field('货币资金2')
-pop_field('货币资金3')
-pop_field('货币资金4')
-
-field_trans()
-
-#insert col
-for i in range(1, doc1.tables[0].rows.count + 1):
-    doc1.tables[0].Cell(i, doc1.tables[0].columns.count).range.text = 'content_{}'.format(i)
-
-doc1.tables[0].Cell(1,1).range.text = '具体项目'
-
-#remove zero row
-remove_zero_row('资产结构')
-
-doc1.SaveAs(os.path.join(os.path.dirname(os.path.abspath(__file__)),'result.docx'))
-doc1.Close(0)
-
-
+Finner_copy()
 
 print('Done!')
 
