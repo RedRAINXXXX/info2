@@ -3,7 +3,7 @@ C: Color Remove
 P: Temp
 D: - Delete
 F: Field
-
+E: Conditions Template
 
 特定 表格文字颜色删除 DONE!
 -行删除 R标记？DONE!
