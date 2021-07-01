@@ -4,30 +4,31 @@ import os
 import glob
 import natsort
 from tqdm import tqdm
-from colorama import Fore
-import collections
+import sys
+import os.path
 
 from win32com.client import Dispatch
 
 #initialization
 app = Dispatch('Word.Application')
-app.visible = True
 excel = Dispatch('Excel.Application')
-excel.visible = True
 data_list = []
 label_list = []
 color_dict = {'橙色':49407,'蓝色':15773696,'绿色':5287936,'浅绿':5296274}
 
 try:
-    conf_path = input("请输入配置文件目录（默认conf.xlsx）：")
-    conf_path = conf_path if conf_path != "" else "conf.xlsx"
-
+    if os.path.isfile('conf.xlsx'):
+        conf_path = "conf.xlsx"
+    else:
+        conf_path = input("默认配置文件不存在，请输入配置文件路径：")
     conf = pd.read_excel(conf_path, header=0, index_col=0)
     doc1 = app.Documents.Open(conf.loc['doc_source'][0])
-    doc2 = app.Documents.Open(conf.loc['doc_target'][0])
     doc1.ActiveWindow.View.ShowHiddenText = False
     doc1.Activate()
     xbook = excel.Workbooks.Open(conf.loc['data_excel'][0])
+
+    app.visible = True if conf.loc['word_visible'][0] == 1 else False
+    excel.visible = True if conf.loc['excel_visible'][0] == 1 else False
 
     loc_num = conf.loc['loc_num'][0]
     for i in range(loc_num):
@@ -45,7 +46,6 @@ except Exception as errmsg:
 
 def fiFindByWildcard(wildcard):
     return natsort.natsorted(glob.glob(wildcard, recursive=True))
-
 def replace_all(oldstr, newstr, regrex = False):
     app.Selection.Find.Execute(
         oldstr, False, False, regrex, False, False, True, 1, False, newstr, 2)
@@ -54,16 +54,22 @@ def replace_all(oldstr, newstr, regrex = False):
 #Replace
 
 #1 Remove Color
-def remove_color(colorname):
+def remove_color(mode='conf'):
     """
     删除指定的颜色
-    :param colorname: 由颜色字典定义的中文颜色
+    :param mode: input: input conf: conf file
     :return:
     """
+    colorname = None
+    if mode == 'input':
+        colorname = input("请输入要删除的颜色，（支持颜色：橙色、蓝色、绿色、浅绿）：")
+    elif mode == 'conf':
+        colorname = conf.loc['1_colorname'][0]
     app.Selection.Find.Font.Color = color_dict[colorname]
     app.Selection.Find.Execute(FindText='', MatchCase=False, MatchWholeWord=False, MatchWildcards = False,
                                MatchSoundsLike = False, MatchAllWordForms = False, Forward = True,
                                Wrap = 1, Format = True, ReplaceWith='', Replace=2)
+    print("Func 1 Done!")
 
 def set_find(ClearFormatting=True, Text="", ReplacementText="",Forward=True,
              Wrap = 1,Format = False,MatchCase = False,MatchWholeWord = False,
@@ -97,16 +103,24 @@ def all_com(now,rest):
             hide_change(hidden =True, name = ';'.join(now))
 
 #2 Hide Template
-def hide_all_T(t_num):
+def hide_all_T(mode='conf'):
     """
     隐藏所有的数字模板
-    :param t_num: 模板总数
+    :param mode: input: input conf: conf file
     :return:
     """
+    t_num = None
+    if mode == 'input':
+        t_num = int(input("请输入模板总类数："))
+    elif mode == 'conf':
+        t_num = int(conf.loc['t_num'][0])
+
     doc1.ActiveWindow.View.ShowHiddenText = True
     tl = [str(i) for i in range(1,t_num + 1)]
     all_com(now='',rest=''.join(tl))
     doc1.ActiveWindow.View.ShowHiddenText = False
+
+    print("Func 2 Done!")
 
 def chosen_copy(now,rest,chosen):
     if rest != '':
@@ -119,18 +133,28 @@ def chosen_copy(now,rest,chosen):
             # replace_all("^p^p", "^p")
 
 #3 Copy Chosen Template
-def copy_chosen_T(chosen,t_num):
+def copy_chosen_T(mode='conf'):
     """
     将选择的模板复制一份P标记副本
-    :param chosen: 选择保留的模板
-    :param t_num: 总模板数
+    :param mode: input: input conf: conf file
     :return:
     """
+    t_num = None
+    chosen = None
+    if mode == 'input':
+        t_num = int(input("请输入模板总类数："))
+        chosen = int(input("请输入要复制的模板："))
+    elif mode == 'conf':
+        t_num = int(conf.loc['t_num'][0])
+        chosen = int(conf.loc['3_chosen_t'][0])
+
     tl = [str(i) for i in range(1,t_num + 1)]
     chosen_copy(now='', rest=''.join(tl), chosen=str(chosen))
 
+    print("Func 3 Done!")
+
 #4 Restore from P mode
-def restore():
+def restore(mode):
     """
     删除所有的P标记模板
     :return:
@@ -141,13 +165,19 @@ def restore():
     app.Selection.Font.Hidden = False
     doc1.ActiveWindow.View.ShowHiddenText = False
 
+    print("Func 4 Done!")
+
 #5 Replace Single File
-def replace_elements(filename):
+def replace_doc1(mode):
     """
     从data_list,label_list中读取数据，替换doc_source
-    :param filename: tqdm的任务描述
     :return:
     """
+    replace_elements(doc1.Name)
+
+    print("Func 5 Done!")
+
+def replace_elements(filename):
     for i,l in zip(data_list,label_list):
         row_num = i[2][0]-i[1][0]+1
         col_num = i[2][1]-i[1][1]+1
@@ -162,26 +192,49 @@ def replace_elements(filename):
                     pbar.update(1)
 
 #6 Remove Label
-def remove_mark(label):
+def remove_mark(mode='conf'):
     """
     去除文件的所有指定标记，并保留一份备份文件
-    :param label: 标记类型
+    :param mode: input: input conf: conf file
     :return:
     """
+
+    labels = None
+    if mode == 'input':
+        labels = input("请输入要去除的标记（例：P或P;C;D）：")
+    elif mode == 'conf':
+        labels = conf.loc['6_labels'][0]
+
     doc1.Save()
-    doc1.SaveAs(os.path.dirname(os.path.abspath(__file__)) + '/{}_remove_{}.docx'.format(doc1.Name.split('.')[0],label))
-    replace_all('\{%s_(*)_%s\}' % (label, label) ,'\\1',regrex=True)
+    doc1.SaveAs(os.path.dirname(os.path.abspath(__file__)) + '/{}_remove.docx'.format(doc1.Name.split('.')[0]))
+
+    if re.match('^([PCD];)+[PCD]$', labels):
+        for label in labels.split(";"):
+            replace_all('\{%s_(*)_%s\}' % (label, label), '\\1', regrex=True)
+    elif re.match("^[PCD]$", labels):
+        replace_all('\{%s_(*)_%s\}' % (labels, labels), '\\1', regrex=True)
+
+    print("Func 6 Done!")
 
 #7 Remove Specific Row of certain tables
-def remove_condition_row(enum):
+def remove_condition_row(mode='conf'):
     """
     去除特定标记范围内的“空”行
-    :param enum: ''：去除C标记范围内所有表格的全为空的行 '-'：去除D标记范围内所有表格的从第二列全为'-'的行
+    :param mode: input: input conf: conf file
+           enum: ''：去除C标记范围内所有表格的全为空的行 '-'：去除D标记范围内所有表格的从第二列全为'-'的行
     :return:
     """
     # doc1.ActiveWindow.View.ShowHiddenText = True
     # default enum ''
-    if enum == '':
+
+    enum = None
+    if mode == 'input':
+        enum = input("请输入要去除的行类型（例：'空'或'-'）：")
+    elif mode == 'conf':
+        enum = conf.loc['7_enum'][0]
+
+    if enum == '空':
+        enum = ''
         col_begin = 1
         set_find(Text="\{C_(*)_C\}")
     elif enum == '-':
@@ -211,43 +264,60 @@ def remove_condition_row(enum):
                     doc1.Range(table.Cell(row_index,1).range.start,table.Cell(row_index,table.columns.count).range.end).cells.Delete(2)
                     row_index -= 1
                 row_index += 1
+
+    print("Func 7 Done!")
     # doc1.ActiveWindow.View.ShowHiddenText = False
 
 #8 Remove paragraphs with specific trigger
-def delete_trigger_para(trigger_text="{Trigger}"):
+def delete_trigger_para(mode='conf'):
     """
     去除带有特定触发字符串的段落
-    :param trigger_text: 触发器文字
+    :param mode: input: input conf: conf file
+                 trigger_text: 触发器文字
     :return:
     """
+    trigger_text = None
+    if mode == 'input':
+        trigger_text = input("请输入触发器字符串：")
+    elif mode == 'conf':
+        trigger_text = conf.loc['8_trigger_text'][0]
+
     set_find(Text=trigger_text, MatchWildcards=False)
     app.Selection.WholeStory()
     while app.Selection.Find.Execute():
         app.selection.paragraphs[0].Range.Delete()
 
-#9 Deal with conditions
+    print("Func 8 Done!")
+
+
 def level_1_condition():
     set_find(Text="\{E(*)_")
     app.Selection.WholeStory()
     while app.Selection.Find.Execute():
         label_text = app.Selection.text[2:-1]
-        #TODO CONDITION JUDGE
 
+        #CONDITION JUDGE
+        try:
+            cond = 1 if conf.loc[label_text][0] == 1  else 0
+        except Exception:
+            cond = 0
         #NEED
-        # oldStr = "\{E%s_(*)_E%s\}" % (label_text, label_text)
-        # newStr = "{P_\\1_P}{E%s_\\1_E%s}" % (label_text, label_text)
-        # app.Selection.Find.Execute(oldStr, False, False, True, False, False, True, 1, False, newStr, 1)
-        # #HIDE T
-        # start = app.Selection.range.start
-        # end = app.Selection.range.end
-        # content_length = (end - start - 12 - 2*len(label_text))//2
-        # Tstart = content_length + 2 * len(label_text) + 6
-        # doc1.Range(end-Tstart,end).Font.Hidden = True
-        #TODO DONT NEED
-        app.Selection.Find.Text = "\{E%s_(*)_E%s\}" % (label_text, label_text)
-        app.Selection.End = app.Selection.Start
-        app.Selection.Find.Execute()
-        app.selection.Font.Hidden = True
+        if cond == 1:
+            oldStr = "\{E%s_(*)_E%s\}" % (label_text, label_text)
+            newStr = "{P_\\1_P}{E%s_\\1_E%s}" % (label_text, label_text)
+            app.Selection.Find.Execute(oldStr, False, False, True, False, False, True, 1, False, newStr, 1)
+            #HIDE T
+            start = app.Selection.range.start
+            end = app.Selection.range.end
+            content_length = (end - start - 12 - 2*len(label_text))//2
+            Tstart = content_length + 2 * len(label_text) + 6
+            doc1.Range(end-Tstart,end).Font.Hidden = True
+        #DONT NEED
+        elif cond == 0:
+            app.Selection.Find.Text = "\{E%s_(*)_E%s\}" % (label_text, label_text)
+            app.Selection.End = app.Selection.Start
+            app.Selection.Find.Execute()
+            app.selection.Font.Hidden = True
 
         app.Selection.Start = app.Selection.End
         app.Selection.Find.Wrap = 0
@@ -257,30 +327,43 @@ def sub_condition():
     set_find(Text="\{E(*)_")
     app.Selection.WholeStory()
     while app.Selection.Find.Execute():
-        #TODO CONDITION JUDGE
-
-        #NEED
         label_text = app.Selection.text[2:-1]
-        oldStr = "\{E%s_(*)_E%s\}" % (label_text, label_text)
-        newStr = "\\1"
-        app.Selection.Find.Execute(oldStr, False, False, True, False, False, True, 1, False, newStr, 1)
-        #TODO DONT NEED
-        app.Selection.Find.Text = "\{E%s_(*)_E%s\}" % (label_text, label_text)
-        app.Selection.End = app.Selection.Start
-        app.Selection.Find.Execute()
-        app.selection.Font.Hidden = True
+        #CONDITION JUDGE
+        try:
+            cond = 1 if conf.loc[label_text][0] == 1 else 0
+        except Exception:
+            cond = 0
+        #NEED
+        if cond == 1:
+            oldStr = "\{E%s_(*)_E%s\}" % (label_text, label_text)
+            newStr = "\\1"
+            app.Selection.Find.Execute(oldStr, False, False, True, False, False, True, 1, False, newStr, 1)
+        #DONT NEED
+        elif cond == 0:
+            app.Selection.Find.Text = "\{E%s_(*)_E%s\}" % (label_text, label_text)
+            app.Selection.End = app.Selection.Start
+            app.Selection.Find.Execute()
+            app.selection.Font.Hidden = True
 
         app.Selection.Find.Text = "\{E(*)_"
 
-#10 Field Trans
-def Ftrans(target_doc):
+# 9 Deal with conditions
+def condition(mode):
     """
-    field trans form doc1 to doc2
-    :param target_doc: target doc
+    cond from conf
+    :param mode:
     :return:
     """
-    set_find(Text="\{F(*)_")
+    level_1_condition()
+    sub_condition()
+
+    print("Func 9 Done!")
+
+def Ftrans(path):
+
+    target_doc = app.Documents.Open(path)
     doc1.Activate()
+    set_find(Text="\{F(*)_")
     app.Selection.WholeStory()
     while app.Selection.Find.Execute():
         label_text = app.Selection.text[2:-1]
@@ -305,8 +388,32 @@ def Ftrans(target_doc):
         app.Selection.Start = app.Selection.End
         app.Selection.Find.Wrap = 0
 
+    target_doc.Activate()
+    target_doc.Save()
+    target_doc.Close()
+    doc1.Activate()
+
+#10 Field Trans
+def Ftrans_single(mode='conf'):
+    """
+    :param mode: input: input conf: conf file
+           path: target doc path
+    :return:
+    """
+
+    path = None
+    if mode == 'input':
+        path = input("请输入目的文件绝对路径：")
+    elif mode == 'conf':
+        path = conf.loc['10_single_path'][0]
+
+    Ftrans(path)
+
+    print("Func 10 Done!")
+
+
 #11 Inner Field Trans
-def Finner_copy():
+def Finner_copy(mode):
     """
     Inner Field Trans
     :return:
@@ -336,22 +443,67 @@ def Finner_copy():
         app.Selection.End = end
         app.Selection.Find.Wrap = 0
 
+    print("Func 11 Done!")
+
 #12 Batch Replace
-def batch_replace(directory):
+def batch_replace(mode='conf'):
     """
     Batch Replace
-    :param directory: Dir containing multiple fields
+    :param mode: input: input conf: conf file
+           directory: Dir containing multiple fields
     :return:
     """
+
+    directory = None
+    if mode == 'input':
+        directory = input("请输入批替换的目录路径：")
+    elif mode == 'conf':
+        directory = conf.loc['12_batch_dir'][0]
+
     docx_paths = fiFindByWildcard(os.path.join(directory, '*.docx'))
     for path in docx_paths:
         temp_doc = app.Documents.Open(path)
         temp_doc.Activate()
-        replace_elements(path.split('\\')[-1])
+        replace_elements(temp_doc.Name)
         temp_doc.Save()
         temp_doc.Close()
 
     doc1.Activate()
+
+    print("Func 12 Done!")
+
+#13 Batch Trans
+def batch_trans(mode = 'conf'):
+    """
+    Batch Trans
+    :param mode: input: input conf: conf file
+           directory: Dir containing multiple fields
+    :return:
+    """
+
+    directory = None
+    if mode == 'input':
+        directory = input("请输入批转移的目录路径：")
+    elif mode == 'conf':
+        directory = conf.loc['13_batch_dir'][0]
+
+    docx_paths = fiFindByWildcard(os.path.join(directory, '*.docx'))
+    for path in docx_paths:
+        Ftrans(path)
+
+    doc1.Activate()
+
+    print("Func 13 Done!")
+
+#14 Change doc1:
+def change_doc1(mode):
+    path = input("请输入doc_source绝对路径：")
+    global doc1
+    doc1.Save()
+    doc1.Close()
+    doc1 = app.Documents.Open(path)
+    doc1.Activate()
+    print("Func 14 Done!")
 
 
 
@@ -365,15 +517,27 @@ def batch_replace(directory):
 #     doc1.tables[0].Cell(i, doc1.tables[0].columns.count).range.text = 'content_{}'.format(i)
 # doc1.tables[0].Cell(1,1).range.text = '具体项目'
 
-try:
-    while True:
-        cmd = input("请输入命令或命令组合：")
-        # if cmd.isdigit():
-        #
-        # else:
+func_dict = {"1":remove_color,"2":hide_all_T,"3":copy_chosen_T,"4":restore,"5":replace_doc1,"6":remove_mark,
+             "7":remove_condition_row,"8":delete_trigger_para,"9":condition,"10":Ftrans_single,"11":Finner_copy,"12":batch_replace,
+             "13":batch_trans,"14":change_doc1}
+while True:
+    cmd = input("请输入模式和命令（或组合）：")
 
-except Exception as errmsg:
-    print(errmsg)
+    if cmd == 'quit':
+        sys.exit()
+    else:
+        Mode,cmd = cmd.split(':')[0],cmd.split(':')[1]
+        Mode = 'input' if Mode == 'i' else 'conf' if Mode == 'c' else 'error'
+        if Mode == 'error':
+            print('Wrong Mode!')
+            sys.exit()
+
+        if re.match("^\d+$", cmd):
+            func_dict[cmd](Mode)
+        elif re.match("^(\d+;)+(\d+)$", cmd):
+            for index in cmd.split(';'):
+                func_dict[index](Mode)
+        print('Task Done!')
 
 # copy_chosen_T(chosen=2,t_num=4)
 # hide_all_T(t_num=4)
@@ -383,17 +547,15 @@ except Exception as errmsg:
 # remove_color('橙色')
 # remove_condition_row(enum='-')
 # remove_condition_row(enum='')
+
 # #提交时
 # remove_mark()
 # #恢复模板状态
 # restore()
 
 # delete_trigger_para("{Trigger}")
-#
+
 # batch_replace(r'C:\Users\lihongyu\Desktop\testDir')
 # Ftrans(doc2)
 
-Finner_copy()
-
-print('Done!')
 
